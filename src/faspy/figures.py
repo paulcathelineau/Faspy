@@ -44,18 +44,18 @@ MARGIN = 0.5
 COLUMN_GAP = 0.36
 BLOCK_GAP = 0.30
 ARROW_GAP = 0.92          # vertical room reserved for a flow arrow
-TITLE_HEIGHT = 0.28
-CAPTION_LINE = 0.165
-CAPTION_PAD = 0.09
+TITLE_HEIGHT = 0.54
+CAPTION_LINE = 0.32
+CAPTION_PAD = 0.17
 
-TITLE_SIZE = 11.5
-CAPTION_SIZE = 8.6
-ARROW_SIZE = 9.2
+TITLE_SIZE = 22.0
+CAPTION_SIZE = 16.5
+ARROW_SIZE = 16.5
 INK = "#111111"
 SUBDUED = "#5a5a5a"
 FLOW = "#2f6f8f"
 
-_CHARS_PER_INCH = 14.8    # measured at CAPTION_SIZE; deliberately conservative
+_CHARS_PER_INCH = 7.7    # measured at CAPTION_SIZE; deliberately conservative
                           # so a caption never runs past its column
 
 
@@ -146,13 +146,25 @@ class Alignment:
             flags=cv2.INTER_NEAREST if nearest else cv2.INTER_LINEAR,
         )
 
-    def crop(self, image: np.ndarray, nearest=False, pad=0.0) -> np.ndarray:
-        """Rotate, then crop to the section with an optional margin."""
+    def crop(self, image: np.ndarray, nearest=False, pad=0.0,
+             span=None, centre=None) -> np.ndarray:
+        """Rotate, then crop to the section with an optional margin.
+
+        ``span`` keeps only that fraction of the width, centred on ``centre``.
+        A leaflet section is a very long thin strip: shown whole it is a few
+        pixels tall on the page and no cell wall is legible.
+        """
         y0, y1, x0, x1 = self.box
         if pad:
             grow = int(pad * (y1 - y0))
             y0, y1 = max(0, y0 - grow), min(self.size[1], y1 + grow)
             x0, x1 = max(0, x0 - grow), min(self.size[0], x1 + grow)
+        if span:
+            width = x1 - x0
+            keep = max(1, int(span * width))
+            middle = x0 + int((0.5 if centre is None else centre) * width)
+            x0 = max(x0, min(middle - keep // 2, x1 - keep))
+            x1 = min(x1, x0 + keep)
         return self.apply(image, nearest)[y0:y1, x0:x1]
 
     @staticmethod
@@ -411,18 +423,34 @@ def pipeline_figure(key: str, output=None, model_name=None, rescale=CELLPOSE_RES
 
     sheet = Sheet()
 
+    # Panneaux A a C : un EXTRAIT. Une foliole est une bande tres longue et
+    # fine ; montree en entier elle fait quelques pixels de haut sur la page.
+    # La fenetre retenue est celle qui porte le plus de faisceaux.
+    STRIP_SPAN = 0.34
+    _rot = align.apply((annotated > 0).astype(np.uint8), nearest=True)
+    _y0, _y1, _x0, _x1 = align.box
+    _prof = _rot[_y0:_y1, _x0:_x1].sum(axis=0).astype(float)
+    if _prof.sum() > 0:
+        _win = max(1, int(STRIP_SPAN * _prof.size))
+        _cum = np.concatenate([[0.0], np.cumsum(_prof)])
+        _best = int(np.argmax(_cum[_win:] - _cum[:-_win]))
+        STRIP_CENTRE = (_best + _win / 2) / _prof.size
+    else:
+        STRIP_CENTRE = 0.5
+
     # -- A ------------------------------------------------------------------
     raw_small = cv2.resize(raw, (scaled.shape[1], scaled.shape[0]), interpolation=cv2.INTER_AREA)
     sheet.add(Block(
         "A", "Section as imaged",
-        "FASGA: lignin red-magenta, cellulose blue. Pale surround is mounting medium.",
-        image=align.crop(raw_small, pad=0.16),
+        "Lignin red-magenta, cellulose blue.",
+        image=align.crop(raw_small, pad=0.16, span=STRIP_SPAN, centre=STRIP_CENTRE),
     ))
 
     # -- B ------------------------------------------------------------------
-    footprint = align.crop(scaled).copy()
+    footprint = align.crop(scaled, span=STRIP_SPAN, centre=STRIP_CENTRE).copy()
     imaging.draw_outline(
-        footprint, align.crop(leaflet.astype(np.uint8), nearest=True), (255, 255, 255), 3
+        footprint, align.crop(leaflet.astype(np.uint8), nearest=True,
+                              span=STRIP_SPAN, centre=STRIP_CENTRE), (255, 255, 255), 3
     )
     sheet.add(
         Block(
@@ -434,14 +462,17 @@ def pipeline_figure(key: str, output=None, model_name=None, rescale=CELLPOSE_RES
     )
 
     # -- C ------------------------------------------------------------------
-    instance_view = align.crop(colour_instances(segmented, scaled), nearest=True)
+    instance_view = align.crop(colour_instances(segmented, scaled), nearest=True,
+                               span=STRIP_SPAN, centre=STRIP_CENTRE)
     if model_name:
         imaging.draw_outline(
-            instance_view, align.crop((annotated > 0).astype(np.uint8), nearest=True),
+            instance_view, align.crop((annotated > 0).astype(np.uint8), nearest=True,
+                                      span=STRIP_SPAN, centre=STRIP_CENTRE),
             (255, 255, 255), 3,
         )
     # The centroid of each object, from which depth and spacing are measured.
-    cropped_instances = align.crop(segmented.astype(np.int32), nearest=True)
+    cropped_instances = align.crop(segmented.astype(np.int32), nearest=True,
+                                   span=STRIP_SPAN, centre=STRIP_CENTRE)
     centroids = []
     for index in (i for i in np.unique(cropped_instances) if i > 0):
         ys, xs = np.nonzero(cropped_instances == index)
@@ -455,8 +486,8 @@ def pipeline_figure(key: str, output=None, model_name=None, rescale=CELLPOSE_RES
 
     sheet.add(
         Block(
-            "C", f"Bundle instances  ·  {n_bundles} objects  ({source_note})",
-            "One colour per object, its centroid marked; touching bundles stay apart."
+            "C", f"Bundle instances  ·  {n_bundles} in the section",
+            "One colour per object, centroid marked; touching bundles stay apart."
             + (" White outlines: annotation." if model_name else ""),
             image=instance_view, draw=draw_centroids,
         ),
@@ -589,7 +620,7 @@ def pipeline_figure(key: str, output=None, model_name=None, rescale=CELLPOSE_RES
         axes.set_ylim(depth_view.shape[0], 0)
 
     sheet.add(
-        Block("D", "Object size against the pretraining range",
+        Block("D", "Size vs pretraining range",
               f"Median {typical_diameter:.0f} px, largest {biggest_diameter:.0f} px: "
               f"the midrib stays above the range even rescaled.",
               image=scale_crop, draw=draw_windows),
@@ -597,8 +628,8 @@ def pipeline_figure(key: str, output=None, model_name=None, rescale=CELLPOSE_RES
               f"min(R,G,B) above {LUMEN_NORM_THRESHOLD:.0%} of the section's own range  ·  "
               f"{lumen_pct:.1f} % of the bundle.",
               image=lumen_view, draw=draw_lumen_pointer),
-        Block("F", "Distance to the mid-plane",
-              "Pale counts far more than dark: bending weighs the square of it.",
+        Block("F", "Distance to mid-plane",
+              "Pale weighs far more than dark.",
               aspect=depth_view.shape[0] / depth_view.shape[1], draw=draw_mid_plane),
         arrows=["the setting that\nmade it work",
                 "imaging.lumen_mask\nrelative to each section",
@@ -632,7 +663,7 @@ def pipeline_figure(key: str, output=None, model_name=None, rescale=CELLPOSE_RES
 
     sheet.add(
         Block("G", "One row of quantification.csv",
-              "Eight of the seventy columns; areas also written in µm².",
+              "Eight of the forty-two columns.",
               aspect=0.075, draw=draw_readout),
         arrows=["traits.section_traits"],
     )

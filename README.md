@@ -3,22 +3,41 @@
 Automated quantification of vascular bundles in FASGA-stained transverse
 sections of palm leaflets.
 
-For each section the pipeline reports the **number of vascular bundles**, the
-**bundle area as a fraction of the leaflet**, and the **lumen area as a fraction
-of the leaflet**. Sections are large, roughly 8000 × 12000 px, and are processed
-end to end without manual intervention.
+For each section the pipeline reports the **number of vascular bundles**, their
+**area as a fraction of the leaflet**, the **lumen area**, and 32 derived traits
+describing where the tissue sits rather than only how much of it there is.
+Sections are large — a median of 7512 × 9048 px, up to 13724 × 14416 — and are
+processed end to end without manual intervention.
 
 ![The Faspy pipeline, from a stained section to the measurements it returns](docs/pipeline.jpg)
 
-<sub>Every panel above is computed from the data by `faspy figure`, so the figure
+<sub>Every panel is computed from the data by `faspy figure`, so the figure
 cannot drift from the code. Regenerate it for any section with
 `faspy figure pipeline <key> --model cpsam_final`.</sub>
 
 ---
 
+## The three section sets
+
+These are not interchangeable, and every figure below states which one it refers
+to.
+
+| Set | Sections | What it is |
+|---|---|---|
+| **Cross-validation** | 151 | Hand-annotated, after removing one section with no leaflet image and one whose mask covered the whole leaflet. Every model metric refers to these. |
+| **Admissible** | 148 | The above, less three sections found afterwards to have bundles that are plainly visible but were never drawn. |
+| **Production** | 433 | Every leaflet section held, less one whose image file was truncated. None is annotated. |
+
+---
+
 ## Results
 
-Five-fold cross-validation, stratified by individual, on 151 annotated sections.
+Five-fold cross-validation stratified by **site**. Sections were assigned to
+folds by key rather than by palm; only one individual contributes two sections,
+and those two fell into different folds, so one validation section shared a palm
+with the training set. The splitter has since been corrected to group whole
+palms, and the assignment that produced these figures is archived so that they
+remain reproducible.
 
 | Metric | U-Net (semantic) | Cellpose-SAM (instance) |
 |---|---|---|
@@ -29,26 +48,40 @@ Five-fold cross-validation, stratified by individual, on 151 annotated sections.
 | Area error, after global calibration | 49 % | 16.3 % |
 | Bundle IoU | 0.673 | **0.816** |
 
-AP is reported as the Cellpose papers define it, `TP / (TP + FP + FN)` at a fixed
-IoU threshold, rather than the COCO area-under-the-curve quantity. It is a
-deterministic transform of the F1 on the line below, `AP = F1 / (2 - F1)`, and is
-given because it is what the instance segmentation literature quotes. For
-reference, fine-tuned Cellpose-SAM reaches AP@0.5 of about 0.82 on BlastoSPIM and
-0.64 on the PlantSeg lateral root dataset.
+AP is defined as the Cellpose papers define it, `TP / (TP + FP + FN)` at a fixed
+IoU, not the COCO area-under-the-curve quantity. It is a deterministic transform
+of the F1 below it, `AP = F1 / (2 - F1)`.
 
-A zero-shot baseline — the published checkpoint with no fine-tuning — is not yet
-measured on this dataset. Until it is, the contribution of fine-tuning as
-opposed to rescaling alone cannot be separated. Run `faspy evaluate zeroshot`
-at 1.0 and at 0.35 to close that gap.
+**Excluding the three incompletely annotated sections raises AP to 0.907 and
+drops the counting error to 4.4 %.** True positives are identical, 1063 in both
+cases; false positives fall from 88 to 62 and false negatives from 63 to 47.
+Three sections therefore carried 26 of the false positives and 16 of the false
+negatives. Those sections were in the training folds as well as the test folds,
+so the net direction of their effect cannot be established without retraining.
 
-The instance route is the one used in production. It meets the 10 % target set
-for counting; area does not yet, and the residual error is concentrated in the
-largest size quartile (recall 0.87 there against ≥ 0.95 elsewhere, carrying 15 %
-of the total missed area).
+**Without fine-tuning**, the published Cellpose-SAM checkpoint matches a single
+bundle out of 1126 on these sections, an AP of 2 × 10⁻⁴. The objects it returns
+have a median area of 5.2 % of a bundle and lie inside one: it segments the
+cells it was trained on. Rescaling alone raises AP to 0.012 without making the
+model usable. Fine-tuning and rescaling are both necessary and act in sequence.
 
-The leaflet class itself is segmented almost perfectly by the U-Net
-(IoU 0.927), which is why that route is kept: it defines the denominator of
-every ratio.
+### Lumen
+
+Measured photometrically at acquisition resolution, not learnt.
+
+| | |
+|---|---|
+| Pixel-wise IoU against manually drawn masks | **0.852** (19 sections) |
+| Precision / recall | 0.933 / 0.946 |
+| Area error against manual ImageJ measurements | **12.4 %** (16 sections) |
+| Area bias | −3.6 % |
+
+Measuring on the acquisition-resolution image rather than at the working scale
+is what produces this agreement: on the same 21 masks and at the same threshold,
+the working scale gives 0.811 and the acquisition resolution 0.848. The gain is
+one of resolution, not of sample selection. It does not extend to lumen *area*,
+whose error is unchanged — the rule already recovered the right quantity at the
+coarser scale, but placed it less precisely.
 
 ---
 
@@ -58,21 +91,6 @@ every ratio.
 python -m pip install -e .
 ```
 
-For GPU training, install a CUDA build of PyTorch first:
-
-```bash
-python -m pip install torch --index-url https://download.pytorch.org/whl/cu121
-```
-
-Point the package at the dataset:
-
-```bash
-export FASGA_ROOT=/path/to/dataset      # Windows: $env:FASGA_ROOT = "..."
-```
-
-Without that variable the package assumes the dataset sits in the directory
-containing this repository, alongside `IMG_LM/` and `IMG_BU/`.
-
 ---
 
 ## Usage
@@ -81,10 +99,18 @@ containing this repository, alongside `IMG_LM/` and `IMG_BU/`.
 faspy prepare                  # convert sources, build label maps and the manifest
 faspy evaluate zeroshot        # the published checkpoint, no fine-tuning: the baseline
 faspy evaluate instances       # 5-fold cross-validation, then the final model
-faspy quantify                 # per-section measurements for every section
+faspy quantify                 # per-section measurements for every production section
 ```
 
-Render the pipeline figure for any section, every panel computed from the data:
+`faspy quantify` writes 42 columns per section, of which 32 are derived traits.
+Beyond the areas it reports where the tissue sits: the second moment of area
+about the leaflet mid-plane, depth beneath the epidermis, spacing between
+neighbours, and the lumen resolved into objects so that metaxylem vessels can be
+told from fibre lumina. The geometric contribution to bending depends on the
+second moment of area, in which an element contributes as the **square** of its
+distance from the neutral axis.
+
+Render any figure, every panel computed from the data:
 
 ```bash
 faspy figure pipeline GALB_0061_1                      # panels from the annotation
@@ -93,20 +119,6 @@ faspy figure traits   GALB_0061_1                      # what every trait measur
 faspy figure diameters                                 # bundle size vs pretraining range
 ```
 
-`faspy quantify` writes 35 columns per section. Beyond the areas, it reports
-where the tissue sits: the second moment of area about the leaflet mid-plane,
-depth beneath the epidermis, spacing between neighbours, and the lumen resolved
-into objects so that metaxylem vessels can be told from fibre lumina. Flexural
-stiffness follows position, not amount, because a element contributes as the
-SQUARE of its distance from the neutral axis.
-
-The mid-plane is taken column by column as the midpoint between the two faces,
-so it follows the section and reports depth alone. Curvature measured against a
-single straight axis is not a plant trait here: species accounts for 3 % of its
-variance and site for 2 %, the rest lying between sections of one species at one
-site. It records how the section came to rest on the slide. Analyses should
-therefore rest on `I_bundle_share_flat` rather than `I_bundle_share`.
-
 Diagnostics, none of which train anything:
 
 ```bash
@@ -114,11 +126,11 @@ faspy diagnose images          # source files that will not decode
 faspy diagnose annotations     # masks that are implausible against their own section
 faspy diagnose orphans         # detected bundles that no annotation covers
 faspy diagnose sweep           # decoding thresholds, on one fold, no retraining
-faspy diagnose depth           # calibrate a trichome filter on annotated bundles
+faspy diagnose lumen           # the photometric rule against manual measurements
 ```
 
 `faspy <command> --help` lists the options. Every default comes from
-`src/faspy/config.py`, which is the only place any path or threshold is defined.
+`src/faspy/config.py`, the only place any path or threshold is defined.
 
 ### Expected dataset layout
 
@@ -149,90 +161,76 @@ fine-tuned on those, and each predicted object is one bundle: counting is native
 and touching bundles separate without a watershed rule.
 
 **Semantic route.** A four-level U-Net trained from scratch over the same three
-classes. It defines the leaflet area. It is not used to quantify bundles.
+classes, kept as the semantic comparison in the table above. **It is not used in
+production.** The leaflet outline there comes from a deterministic photometric
+threshold on the stained image itself, which is what `faspy quantify` runs and
+what the manual-measurement validation tests.
 
 **Quantification.** The leaflet comes from the image, the bundles from the
 instance model, and the lumen from a photometric test inside each detected
 bundle: a cavity stays bright in every channel, so the test is on the minimum of
 the three, not on luminance.
 
-### What Cellpose does, and where it comes from
+### Two acquisition chains, two pixel sizes
 
-Cellpose is a generalist instance-segmentation method for microscopy, developed
-by Stringer, Pachitariu and colleagues and released as open source. Four
-versions matter here:
+127 of the annotated sections were prepared and imaged on a Canon EOS 250D
+mounted on an Olympus BX60; the other 24 were prepared at the AMAP platform and
+imaged on a Keyence VHX-7000. Their scale bars differ, and so must their
+calibration:
 
-| Version | Contribution |
+| | pixel size |
 |---|---|
-| Cellpose (2021) | the flow representation, trained on ~70 000 segmented objects |
-| Cellpose 2.0 (2022) | fine-tuning and human-in-the-loop; a custom model from 500–1000 objects |
-| Cellpose3 (2025) | image restoration for noisy, blurred or undersampled inputs |
-| Cellpose-SAM (2025) | a Segment Anything transformer backbone; the version used here |
+| Canon / Olympus, 20× objective | 0.1853 µm |
+| Keyence VHX-7000 | 0.1435 µm |
 
-**The mechanism.** Most segmentation networks label each pixel as object or
-background and then have to cut the result apart. Cellpose does not. Each
-annotated object is first turned into a *flow field* by simulated diffusion from
-its centre, so every pixel carries a vector pointing towards the centre of the
-object it belongs to. The network learns to predict those two vector components
-plus a probability that the pixel lies inside any object at all. At inference
-the flows are followed downhill: pixels that converge on the same attractor form
-one object.
+Applying the native value to the Keyence sections would overstate their lengths
+by 29.2 % and their areas by 66.9 %. **Pixel size is therefore set per section**,
+from an explicit list in the configuration rather than from a directory scan, so
+that the calibration is right on any machine.
 
-That is why the method suits vascular bundles. Objects are recovered as whole
-entities rather than reconstructed from a binary mask, so **counting is native**,
-**touching bundles do not merge**, and an outline may be as irregular as it likes
-— no convexity, no bounding box, no watershed rule to tune. It is also why the
-semantic route plateaued at +119 % counting error: pixel-wise labelling has no
-notion of an object, so two adjacent bundles are one connected component and
-nothing downstream can separate them reliably.
+Nothing downstream catches this on its own: the manual ImageJ reference areas
+are expressed in **pixels**, so the area check that agrees to 0.0 % tests the
+masking chain and never the conversion factor.
 
-**What is fine-tuned here.** Not a model trained from scratch. Training starts
-from the published Cellpose-SAM checkpoint and adapts it to FASGA-stained
-bundles at a low learning rate (1e-5) for 100 epochs. Instance labels are the
-connected components of the existing bundle masks, so no new annotation was
-produced for this project.
+### Cleaning the leaflet mask before any geometry
 
-**The two decoding thresholds**, which act at inference and need no retraining:
+Mosaic stitching leaves thin panelling lines in the images. They are not black,
+so they enter the leaflet mask, where they shift the upper and lower bound of
+each column and therefore the midpoint between them. Their area is negligible —
+many affected sections have more than 99 % of their area in the main component,
+some a single component — but their effect on the mid-plane is not.
 
-- `cellprob_threshold` (default 0.0) thresholds the inside-object probability.
-  Lowering it grows the masks and admits more objects.
-- `flow_threshold` (default 0.4) is the tolerated mismatch between the predicted
-  flows and the flows recomputed from the resulting mask. Raising it keeps
-  objects with more irregular shapes.
+A morphological opening of **3 µm**, defined in micrometres so that it means the
+same thing on both chains, is applied before any geometric measurement. The size
+was fixed by sweeping 3, 4, 6, 8 and 10 µm against a blind visual reading of 50
+sections: 3 µm is the smallest opening that reaches full effect, repairing all
+23 mid-lines judged invalid without degrading any of the 26 judged valid, while
+removing less tissue than the larger values (1.19 % of area against 2.21 % at
+10 µm). Keeping only the main component is necessary but **not** sufficient: the
+noise is often connected to the tissue.
 
-`faspy diagnose sweep` scores combinations of the two on held-out sections.
+Across the 433 production sections the correction takes the number of sections
+with a curvature index below 1 — a value that signals a geometric anomaly — from
+63 to 0.
 
-**Why rescaling is needed at all.** Cellpose-SAM is reported as robust to object
-size, which is true within the range it was pretrained on: images were resized
-by a log-uniform factor of 0.25–4 around a 30 px mean diameter and cropped to
-256 × 256, giving object diameters of roughly **7.5–120 px**. At the working
-scale alone the bundles here have a median diameter of 168 px and a 90th
-percentile of 377 px — outside that range, and beyond the 256 px crop for the
-largest. Reducing by 0.35 brings the median to 56 px, inside the range the model
-knows. The published fine-tuning protocol does the same thing, rescaling images
-by the mean diameter of the training objects.
+The cleaned mask is used **only** for geometry. Areas, fractions and counts
+remain computed on the original mask, so the correction cannot silently move a
+published area. Setting `GEOMETRY_OPEN_UM` to zero reproduces the historical
+geometry exactly.
 
 ### Scale is the critical parameter
 
-Cellpose-SAM trains on fixed 256 px crops and that window cannot be changed. At
-the working scale the median bundle diameter is 168 px, so the largest bundles
-do not fit and are never learnt: recall on the top quartile was 0.46, and 63 % of
-all missed area sat in that quartile alone.
-
-Reducing the scale at inference only *moves* the window — large bundles are
-gained, small ones lost. Training *and* evaluating at 0.35 brings the median
-diameter to 56 px and widens the usable range instead: recall went from
-0.75 / 0.46 (smallest / largest quartile) to 0.98 / 0.87, area bias from −42.8 %
-to −5.8 %, and count error from 15.1 % to 6.0 %.
-
-`CELLPOSE_RESCALE` therefore multiplies `WORKING_SCALE`; the effective scale is
-0.175 of the original. Training and inference must always use the same value.
+Cellpose-SAM was pretrained on object diameters of roughly 7.5 to 120 px. The
+median annotated bundle is 321 px across at acquisition resolution and 161 px at
+the working scale, so only 1 % and 26 % of objects respectively fall inside that
+range. Reducing by a further factor of 0.35 brings the median to 56 px and 89 %
+of objects into range.
 
 ![Bundle diameters against the range Cellpose-SAM was pretrained on](docs/diameters.jpg)
 
-Measured over the 1126 annotated bundles: at full resolution 1 % of them fall
-inside the range the model knows, at the working scale 26 %, and at 0.175
-**89 %**. Regenerate with `faspy figure diameters`.
+The same factor is applied at training and at inference. Rescaling only at
+inference moves the usable window instead of widening it: recall on the largest
+quartile improves while recall on the smallest collapses.
 
 ---
 
@@ -256,15 +254,20 @@ at +119 % count error: it merges touching bundles and paints large false patches
 in the mesophyll that no area filter can remove. That is a limit of the
 formulation, not of the training.
 
-**Minimum bundle area is defined at full resolution** (`MIN_BUNDLE_AREA_FULLRES`)
-and converted, so it keeps its physical meaning when the working scale changes.
+**Minimum bundle area is defined in pixels at acquisition resolution**
+(`MIN_BUNDLE_AREA_FULLRES` = 6000). Because the two chains differ in pixel size,
+this corresponds to 206 µm² on native sections and 124 µm² on Keyence ones,
+which therefore retain slightly smaller objects. The consequence was measured
+and is one component in 1126. `MIN_BUNDLE_AREA_PHYSICAL` switches to a
+physically defined threshold; it is off by default so that the code reproduces
+the published measurements exactly.
 
-**Duplicate sections are removed when the manifest is built.** The DIC set
-covers the same individuals as the native set, and an earlier converter appended
-a `_v2` suffix on a name collision rather than skipping, producing byte-identical
-twins. Because folds are drawn by key, one twin could train while the other
-validated. Every cross-validated figure produced before this was found is
-optimistic; the manifest builder now compares file contents and drops the twins.
+**Duplicate sections are removed when the manifest is built.** An earlier
+converter appended a `_v2` suffix on a name collision rather than skipping,
+producing 24 pairs of byte-identical sections. Because folds are drawn by key,
+one twin could train while the other validated. Every cross-validated figure
+produced before this was found is optimistic and none is reported; the manifest
+builder now compares file contents and drops the twins.
 
 ---
 
@@ -283,16 +286,32 @@ because the factor is estimated from summed areas and is therefore set by the
 largest sections while being applied to every one.
 
 That calibration degrades the error is the clearest evidence that the residual
-is spread rather than bias, and it is the reason the uncalibrated 13.5 % is the
-figure to carry forward. The factor is also estimated on the same predictions it
-is then evaluated against, which makes it flattering rather than pessimistic —
-so the degradation is, if anything, understated.
+is spread rather than bias, and it is why the uncalibrated 13.5 % is the figure
+to carry forward. The factor is also estimated on the same predictions it is
+evaluated against, so the degradation is, if anything, understated.
 
-The count bias is positive (+2.4 %), and 3.7–5.1 % of predictions overlap no
-annotation. Visual arbitration by a plant anatomist found 11 of 13 such objects
-to be real bundles the annotation had missed, and 2 to be trichomes. Part of the
-reported count error is therefore a property of the reference rather than of the
-model. `faspy diagnose orphans` re-runs that audit across the whole set.
+**The reference annotation limits the measured accuracy.** Of 1151 predictions,
+50 overlapped no annotation by more than a quarter of their area. Visual
+arbitration by a plant anatomist found 45 of the 50 to be genuine bundles the
+annotation had missed and 5 to be trichomes, leaving a genuine false-detection
+rate of 0.4 %. Part of the reported count error is therefore a property of the
+reference rather than of the model. `faspy diagnose orphans` re-runs that audit.
+
+### Curvature is not a plant trait here
+
+Decomposing the variance of the curvature index over the 148 admissible
+sections, after the geometric correction, attributes 6.9 % to species and 1.0 %
+to site; 93.1 % lies between sections of one species at one site.
+
+The comparison with two other traits measured the same way on the same sections
+is what makes this conclusive: species explains 31.7 % of the bundles' share of
+the second moment and 37.2 % of leaflet thickness. The method separates species
+perfectly well when there is something to separate. Curvature records how the
+section came to rest on its slide.
+
+Analyses should therefore rest on `I_bundle_share_flat`, measured about the
+mid-plane, rather than `I_bundle_share`, measured about a straight axis that
+absorbs the mounting.
 
 ---
 
@@ -305,6 +324,7 @@ Measured on one RTX 3050, 8 GB:
 | One fold, 100 epochs, ~120 sections | ~17 h 40 |
 | Full five-fold cross-validation | ~88 h |
 | Final model, 151 sections | ~22 h |
+| **Production, 433 sections** | **57 min** |
 | Checkpoint size | 1.22 GB |
 
 Cellpose-SAM prints nothing during its epochs, so a run looks stalled while it
