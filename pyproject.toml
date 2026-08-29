@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "faspy"
+version = "1.0.0"
+description = "Quantification of vascular bundles in FASGA-stained palm leaflet sections"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENCE"]
+requires-python = ">=3.10"
+keywords = ["plant anatomy", "histology", "image segmentation", "FASGA", "Cellpose"]
+classifiers = [
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Image Processing",
+    "Programming Language :: Python :: 3",
+]
+dependencies = [
+    "numpy>=1.24",
+    "opencv-python>=4.8",
+    "pillow>=10.0",
+    "torch>=2.0",
+    "cellpose>=4.0",
+    "matplotlib>=3.7",
+]
+
+[project.scripts]
+faspy = "faspy.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"

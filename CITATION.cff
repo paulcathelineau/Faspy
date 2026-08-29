@@ -1,0 +1,43 @@
+cff-version: 1.2.0
+title: >-
+  Faspy: quantification of vascular bundles in FASGA-stained palm
+  leaflet sections
+message: If you use this software, please cite it as below.
+type: software
+version: 1.0.0
+
+# TODO before publication: complete every field marked FIXME.
+authors:
+  - given-names: Paul
+    family-names: Cathelineau
+    affiliation: Institut de Recherche pour le Developpement (IRD)
+    email: paul.cathelineau@ird.fr
+    orcid: FIXME          # https://orcid.org/0000-0000-0000-0000
+
+repository-code: https://github.com/paulcathelineau/Faspy
+license: MIT
+
+abstract: >-
+  A reproducible pipeline that measures vascular bundle number, bundle area and
+  lumen area on transverse sections of FASGA-stained palm leaflets. Bundles are
+  segmented as instances with a fine-tuned Cellpose-SAM model; the leaflet
+  footprint is segmented with a U-Net and provides the denominator of every
+  ratio. Five-fold cross-validation over 151 annotated sections gives an object
+  F1 of 0.934 and a counting error of 6.9 per cent.
+
+keywords:
+  - plant anatomy
+  - quantitative histology
+  - image segmentation
+  - FASGA staining
+  - Cellpose
+
+# The image set is archived separately; cite it alongside the software.
+references:
+  - type: dataset
+    title: FIXME       # title of the Zenodo deposit
+    authors:
+      - given-names: FIXME
+        family-names: FIXME
+    doi: FIXME
+    year: 2026

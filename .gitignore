@@ -1,0 +1,37 @@
+# Derived data and results: rebuilt by `faspy prepare`, never committed
+seg_work/
+Out/
+seg_models/
+cellpose_models/
+
+# Source images: archived separately, see README
+IMG_LM/
+IMG_BU/
+IMG_VA/
+IMG_BULU/
+DIC/
+LU+VA+BULU/
+*.png
+*.tif
+*.tiff
+*.jpg
+
+# except the figures used by the documentation
+!docs/*.png
+!docs/*.jpg
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.env
+
+# Editors and operating system
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
