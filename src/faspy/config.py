@@ -168,10 +168,36 @@ PIXEL_AREA_UM2 = PIXEL_SIZE_UM ** 2
 # ---------------------------------------------------------------------------
 # Anatomical traits
 # ---------------------------------------------------------------------------
-# A lumen wider than this equivalent diameter is counted as a vessel. Metaxylem
-# vessels typically span 20-100 um while fibre lumina stay well below; the
-# vessel count proved stable anywhere between 15 and 25 um on these sections.
-VESSEL_MIN_DIAMETER_UM = 15.0
+# Au-dela de ce diametre equivalent, un lumen est compte comme grand conduit.
+#
+# 11 um, et non 15 : a 15 um le comptage tombe a 0.29 conduit par faisceau sur
+# les coupes annotees, avec 86 % de faisceaux sans aucun conduit, la ou Silva &
+# Potiguara (2010) decrivent trois vaisseaux metaxylematiques par faisceau
+# secondaire chez Oenocarpus. Le sous-comptage etait donc d'un ordre de
+# grandeur. A 11 um on obtient 0.85 conduit par faisceau : toujours en dessous,
+# mais trois fois plus proche.
+#
+# CE QUE 11 um NE FAIT PAS. Il ne separe pas les vaisseaux des fibres. Les
+# lumens de fibres de folioles d'Astrocaryum murumuru ont des MOYENNES par
+# categorie de 1.6 a 10.5 um (Rocha & Potiguara 2007) : une moyenne a 10.5
+# signifie qu'environ la moitie des fibres de cette categorie depassent 10.5 um.
+# Le seuil laisse donc entrer des fibres en meme temps qu'il recupere des
+# conduits. Le diametre seul ne prouve d'ailleurs pas le role conducteur : les
+# tracheides de Guzmania conduisent a 6.5 um (North et al. 2013) et chez le mais
+# protoxyleme et metaxyleme se recouvrent, 19-30 contre 29-36 um (Hwang et al.
+# 2016). Le trait est donc ORDINAL -- un comptage de grands conduits -- et non
+# un recensement de vaisseaux.
+#
+# Le comptage reste tres sensible au seuil : sur les coupes annotees il passe de
+# 3.00 conduits par faisceau a 8 um a 0.12 a 20 um. C'est pourquoi
+# conduit_sum_d4_um4, qui pondere chaque lumen par la puissance quatre de son
+# diametre et n'emploie AUCUN seuil, lui est preferable partout ou une capacite
+# hydraulique est en jeu : il ne varie que de 4 % sur ce meme intervalle.
+#
+# Toute modification de cette valeur invalide n_vessels dans les resultats de
+# production et impose de relancer l'inference, les masques de faisceaux des 433
+# coupes n'ayant pas ete conserves.
+VESSEL_MIN_DIAMETER_UM = 11.0
 
 # Smallest object counted as a lumen at all. Without a floor the lumen map
 # fragments into thousands of isolated pixels and the median diameter falls to

@@ -26,6 +26,7 @@ from .config import (
     MIN_BUNDLE_AREA,
     MIN_BUNDLE_AREA_FULLRES,
     PATCH,
+    VESSEL_MIN_DIAMETER_UM,
     WORKING_SCALE,
 )
 
@@ -426,23 +427,19 @@ def pipeline_figure(key: str, output=None, model_name=None, rescale=CELLPOSE_RES
     # Panneaux A a C : un EXTRAIT. Une foliole est une bande tres longue et
     # fine ; montree en entier elle fait quelques pixels de haut sur la page.
     # La fenetre retenue est celle qui porte le plus de faisceaux.
-    STRIP_SPAN = 0.34
-    _rot = align.apply((annotated > 0).astype(np.uint8), nearest=True)
-    _y0, _y1, _x0, _x1 = align.box
-    _prof = _rot[_y0:_y1, _x0:_x1].sum(axis=0).astype(float)
-    if _prof.sum() > 0:
-        _win = max(1, int(STRIP_SPAN * _prof.size))
-        _cum = np.concatenate([[0.0], np.cumsum(_prof)])
-        _best = int(np.argmax(_cum[_win:] - _cum[:-_win]))
-        STRIP_CENTRE = (_best + _win / 2) / _prof.size
-    else:
-        STRIP_CENTRE = 0.5
+    # Pas de recadrage : la coupe entiere. Un extrait avait ete essaye pour
+    # gagner en detail, mais il prive le lecteur de la vue d'ensemble, et le
+    # rapport d'aspect ne predit pas la lisibilite -- la coupe la plus allongee
+    # du jeu (10:1) est aussi la plus lisible, parce que son tissu est epais en
+    # pixels. C'est l'epaisseur absolue qui compte, pas l'elongation.
+    STRIP_SPAN = None
+    STRIP_CENTRE = None
 
     # -- A ------------------------------------------------------------------
     raw_small = cv2.resize(raw, (scaled.shape[1], scaled.shape[0]), interpolation=cv2.INTER_AREA)
     sheet.add(Block(
         "A", "Section as imaged",
-        "Lignin red-magenta, cellulose blue.",
+        "",
         image=align.crop(raw_small, pad=0.16, span=STRIP_SPAN, centre=STRIP_CENTRE),
     ))
 
@@ -455,10 +452,10 @@ def pipeline_figure(key: str, output=None, model_name=None, rescale=CELLPOSE_RES
     sheet.add(
         Block(
             "B", f"Leaflet footprint  ·  {100 * leaflet.mean():.1f} % of frame",
-            "Denominator of every ratio.",
+            "",
             image=footprint,
         ),
-        arrows=["blacken background\ntouching a border"],
+        arrows=["blacken border background"],
     )
 
     # -- C ------------------------------------------------------------------
@@ -487,11 +484,10 @@ def pipeline_figure(key: str, output=None, model_name=None, rescale=CELLPOSE_RES
     sheet.add(
         Block(
             "C", f"Bundle instances  ·  {n_bundles} in the section",
-            "One colour per object, centroid marked; touching bundles stay apart."
-            + (" White outlines: annotation." if model_name else ""),
+            "",
             image=instance_view, draw=draw_centroids,
         ),
-        arrows=[f"instances.predict  ·  Cellpose-SAM\nat scale {rescale}"],
+        arrows=[f"Cellpose-SAM at scale {rescale}"],
     )
 
     # -- D, E, F ------------------------------------------------------------
@@ -574,7 +570,8 @@ def pipeline_figure(key: str, output=None, model_name=None, rescale=CELLPOSE_RES
     fine = lumen_at_full_resolution(leaflet_full, bundle_mask, leaflet)
     full_lumen = to_working_scale(fine["lumen"], bundle_mask.shape)
     measured = trait_route.section_traits(leaflet, segmented, full_lumen, fine=fine)
-    field, rotated_leaflet, _, mid_line = trait_route.mid_plane(leaflet, bundle_mask)
+    field, rotated_leaflet, (rotated_bundle,), mid_line = trait_route.mid_plane(
+        leaflet, bundle_mask)
 
     # A stretch of the lamina rather than the whole strip: at a third of the
     # sheet's width the full section collapses to an unreadable band, whereas a
@@ -619,21 +616,94 @@ def pipeline_figure(key: str, output=None, model_name=None, rescale=CELLPOSE_RES
         axes.set_xlim(0, depth_view.shape[1])
         axes.set_ylim(depth_view.shape[0], 0)
 
+    # Vaisseaux : les cavites d'au moins VESSEL_MIN_DIAMETER_UM, distinguees
+    # des lumina de fibres. C'est le seul trait ou un seuil de taille separe
+    # deux types cellulaires, et il meritait d'etre montre.
+    # Cadrer sur le faisceau qui porte la plus grosse cavite : sur un faisceau
+    # pris au hasard, aucun objet n'atteint le seuil et le panneau ne montre
+    # rien de la distinction qu'il est cense illustrer.
+    _n, _lab, _st, _ = cv2.connectedComponentsWithStats(
+        to_working_scale(fine["lumen"], bundle_mask.shape).astype(np.uint8), 8)
+    if _n > 1:
+        _big = 1 + int(np.argmax(_st[1:, cv2.CC_STAT_AREA]))
+        _cy, _cx = np.argwhere(_lab == _big).mean(axis=0).astype(int)
+        _half = max(lumen_crop.shape) // 2
+        vy0 = max(0, min(_cy - _half, scaled.shape[0] - 2 * _half))
+        vx0 = max(0, min(_cx - _half, scaled.shape[1] - 2 * _half))
+        vessel_crop = scaled[vy0:vy0 + 2 * _half, vx0:vx0 + 2 * _half].copy()
+        vessel_inside = bundle_mask[vy0:vy0 + 2 * _half, vx0:vx0 + 2 * _half]
+    else:
+        vessel_crop, vessel_inside = lumen_crop.copy(), inside
+    lumen_v = imaging.lumen_mask(vessel_crop, vessel_inside,
+                                 imaging.nonblack(vessel_crop))
+    vessel_view = vessel_crop.copy()
+    count_v, labels_v, stats_v, _ = cv2.connectedComponentsWithStats(
+        lumen_v.astype(np.uint8), 8)
+    pixel_um_full = trait_route.PIXEL_UM
+    n_vessels_here = 0
+    for index in range(1, count_v):
+        area = stats_v[index, cv2.CC_STAT_AREA]
+        diameter = 2 * np.sqrt(area / np.pi) * pixel_um_full
+        mask_v = labels_v == index
+        if diameter >= VESSEL_MIN_DIAMETER_UM:
+            vessel_view[mask_v] = (255, 40, 40)
+            n_vessels_here += 1
+        else:
+            vessel_view[mask_v] = (120, 170, 255)
+    imaging.draw_outline(vessel_view, vessel_inside.astype(np.uint8), (0, 0, 0), 3)
+
+    def draw_vessels(axes):
+        # Rien a dessiner : le titre porte le compte, et un texte centre dans
+        # un panneau d'un tiers de largeur deborde sur son voisin.
+        return
+
     sheet.add(
-        Block("D", "Size vs pretraining range",
-              f"Median {typical_diameter:.0f} px, largest {biggest_diameter:.0f} px: "
-              f"the midrib stays above the range even rescaled.",
-              image=scale_crop, draw=draw_windows),
+        Block("D", "Object size",
+              "", image=scale_crop, draw=draw_windows),
         Block("E", "Lumen",
-              f"min(R,G,B) above {LUMEN_NORM_THRESHOLD:.0%} of the section's own range  ·  "
-              f"{lumen_pct:.1f} % of the bundle.",
-              image=lumen_view, draw=draw_lumen_pointer),
-        Block("F", "Distance to mid-plane",
-              "Pale weighs far more than dark.",
-              aspect=depth_view.shape[0] / depth_view.shape[1], draw=draw_mid_plane),
-        arrows=["the setting that\nmade it work",
-                "imaging.lumen_mask\nrelative to each section",
-                "traits.mid_plane\nfollows the lamina"],
+              "", image=lumen_view, draw=draw_lumen_pointer),
+        Block("F", "Vessels", "",
+              image=vessel_view, draw=draw_vessels),
+        arrows=["the decisive setting", "relative to each section",
+                "follows the lamina"],
+    )
+
+    # -- G, H : ce que le plan median produit, et les vaisseaux -------------
+    # Le plan median est l'apport de la methode, et jusqu'ici seule la carte
+    # des distances etait montree. Les traits qui en DECOULENT ne l'etaient
+    # pas : epaisseur, profondeur des faisceaux, part du moment quadratique.
+    box = Alignment._content_box(rotated_leaflet)
+    gy0, gy1, gx0, gx1 = box
+    geo = np.zeros((gy1 - gy0, gx1 - gx0, 3), dtype=np.uint8)
+    leaf_here = rotated_leaflet[gy0:gy1, gx0:gx1]
+    bund_here = rotated_bundle[gy0:gy1, gx0:gx1]
+    dist_here = field[gy0:gy1, gx0:gx1]
+    geo[leaf_here] = (232, 232, 236)
+
+    # Chaque faisceau prend une couleur selon sa distance au plan median :
+    # c'est cette distance, au carre, qui fait sa contribution au moment.
+    if bund_here.any():
+        top = float(np.percentile(dist_here[leaf_here], 98)) or 1.0
+        shade = np.clip(dist_here / top, 0, 1)
+        warm = (plt.get_cmap("inferno")(shade)[..., :3] * 255).astype(np.uint8)
+        geo[bund_here] = warm[bund_here]
+
+    def draw_geometry(axes):
+        columns = np.arange(mid_line.size)
+        keep = (columns >= gx0) & (columns < gx1) & rotated_leaflet.any(axis=0)
+        axes.plot(columns[keep] - gx0, mid_line[keep] - gy0,
+                  color="#00b899", lw=2.6, zorder=5)
+        # Les chiffres sont dans le titre : ce panneau est une bande fine,
+        # un texte centre dedans deborde de sa largeur.
+        return
+
+    sheet.add(
+        Block("G",
+              f"Mid-plane  ·  {measured['leaflet_thickness_um']:.0f} um thick  ·  "
+              f"bundles carry {100 * float(measured['I_bundle_share_flat']):.1f} % "
+              f"of the second moment", "",
+              image=geo, draw=draw_geometry),
+        arrows=["distance decides the moment"],
     )
 
     # -- G: the row written out ---------------------------------------------
@@ -662,10 +732,10 @@ def pipeline_figure(key: str, output=None, model_name=None, rescale=CELLPOSE_RES
             axes.text(x, 0.34, name, fontsize=8.4, color=SUBDUED, va="center")
 
     sheet.add(
-        Block("G", "One row of quantification.csv",
-              "Eight of the forty-two columns.",
+        Block("H", "One row of quantification.csv",
+              "",
               aspect=0.075, draw=draw_readout),
-        arrows=["traits.section_traits"],
+        arrows=["derive the traits"],
     )
 
     # -- Render -------------------------------------------------------------

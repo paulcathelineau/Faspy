@@ -15,6 +15,19 @@ processed end to end without manual intervention.
 cannot drift from the code. Regenerate it for any section with
 `faspy figure pipeline <key> --model cpsam_final`.</sub>
 
+### What each quantity actually means
+
+Numbers in a results table are hard to audit. Every measurement is therefore
+also drawn on the section it came from, with its value beside it, so that a
+wrong trace is visible without reading any code.
+
+![Each measured quantity drawn on the section, with its value](docs/measurements.jpg)
+
+This is how the two defects described below were found: a mid-plane that ran
+outside the tissue, and a mask whose internal fragments were being counted as
+separate bundles. Both executed without error and produced plausible-looking
+numbers.
+
 ---
 
 ## The three section sets
@@ -83,6 +96,32 @@ one of resolution, not of sample selection. It does not extend to lumen *area*,
 whose error is unchanged — the rule already recovered the right quantity at the
 coarser scale, but placed it less precisely.
 
+Every detected cavity is circled, and those reaching the conduit threshold carry
+their equivalent diameter, so what is counted and what is not can be checked
+against the anatomy rather than taken on trust.
+
+![Detected cavities, circled, with conduit diameters in micrometres](docs/conduits.jpg)
+
+The threshold of 11 µm separates large conduits from the rest. It does **not**
+separate vessels from fibres, and it measures xylem only: a metaxylem vessel is
+dead at maturity, so its lumen is an empty cavity a photometric rule can find,
+whereas a phloem sieve tube is alive and full of cytoplasm and never appears as
+one. Phloem therefore falls into the non-luminal compartment, which it inflates.
+The count is reported as ordinal, not as a vessel census.
+
+### Composition
+
+At leaflet scale the section has four compartments — conduits, small lumina,
+wall, and ground tissue — and two log-ratios describe it completely.
+
+![The four compartments and the two log-ratios that describe them](docs/compartments.jpg)
+
+Log-ratios rather than fractions, because fractions are constrained by their
+sum: raising one forces another down, so correlating two shares of the same
+whole partly measures that constraint rather than the plant. Both ratios are
+dimensionless, so pixel size cancels and the two acquisition chains compare
+directly.
+
 ---
 
 ## Installation
@@ -105,8 +144,9 @@ faspy quantify                 # per-section measurements for every production s
 `faspy quantify` writes 42 columns per section, of which 32 are derived traits.
 Beyond the areas it reports where the tissue sits: the second moment of area
 about the leaflet mid-plane, depth beneath the epidermis, spacing between
-neighbours, and the lumen resolved into objects so that metaxylem vessels can be
-told from fibre lumina. The geometric contribution to bending depends on the
+neighbours, and the lumen resolved into objects so that large conduits can be
+told from small lumina. That separation is one of size, not of identity: it does
+not distinguish vessels from fibres, and it sees xylem only. The geometric contribution to bending depends on the
 second moment of area, in which an element contributes as the **square** of its
 distance from the neutral axis.
 
@@ -218,6 +258,15 @@ remain computed on the original mask, so the correction cannot silently move a
 published area. Setting `GEOMETRY_OPEN_UM` to zero reproduces the historical
 geometry exactly.
 
+![Why the mid-plane has to be corrected before any geometry](docs/midplane.jpg)
+
+<sub>Above, panelling lines left by mosaic stitching pull the mid-plane out of
+the leaflet entirely. Below, a section where nothing changes. A
+`curvature_index` under 1 is not a geometric impossibility — the principal axis
+minimises the second moment among *straight* lines, while the mid-plane is a
+curve constrained to minimise nothing — but it is a reliable alarm that the
+mid-plane is misplaced, and it is what led to this defect.</sub>
+
 ### Scale is the critical parameter
 
 Cellpose-SAM was pretrained on object diameters of roughly 7.5 to 120 px. The
@@ -231,6 +280,38 @@ of objects into range.
 The same factor is applied at training and at inference. Rescaling only at
 inference moves the usable window instead of widening it: recall on the largest
 quartile improves while recall on the smallest collapses.
+
+---
+
+### Colour does most of the work, but not all of it
+
+The instance model is given the three channels of the stained image, and it is
+the colour contrast between a bundle and the ground tissue that makes its
+boundary recoverable at all. The leaflet mask is read from the summed channels,
+the lumen rule from the minimum of the three. One further use was expected and
+does not work: hue does **not** partition a bundle into conducting and
+structural tissue.
+
+![The red-to-blue index of wall pixels: unimodal, and shifted between acquisition chains](docs/colour.jpg)
+
+The index is unimodal at every smoothing scale from none to 40 µm, so no
+threshold is designated by the data. Its median also differs between the two
+acquisition chains by more than the dispersion within a single section, so an
+absolute threshold would report a difference in white balance as a difference in
+tissue composition. A per-section threshold removes that bias but separates the
+periphery of a bundle from its core rather than one tissue from another.
+Measuring phloem area here would require manual reference annotation first.
+
+The distinction is one of scale, not of principle: the stain separates a bundle
+from the tissue around it well enough for a model to delineate it, and does not
+separate tissues within the bundle well enough for a threshold to measure them.
+
+### Beyond per-section totals
+
+Aggregated tables cannot say whether large bundles are hydraulic or structural,
+or whether peripheral bundles differ from central ones. A per-bundle table can.
+
+![Size, position and composition of 2486 individual bundles](docs/bundles.jpg)
 
 ---
 
