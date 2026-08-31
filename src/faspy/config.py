@@ -202,10 +202,14 @@ PIXEL_AREA_UM2 = PIXEL_SIZE_UM ** 2
 # annotees de 4.35 a 0.28. C'est pourquoi
 # conduit_sum_d4_um4, qui pondere chaque lumen par la puissance quatre de son
 # diametre et n'emploie AUCUN seuil, lui est preferable partout ou une capacite
-# hydraulique est en jeu. Applique a la somme elle-meme, le meme balayage de
-# 8 a 20 um ne lui coute que 11.6 % sur la production et 6.9 % sur les coupes
-# annotees, quand le comptage en perd 94 % : deux ordres de grandeur d'ecart
-# dans la sensibilite au seuil.
+# hydraulique est en jeu. Porter un plancher ARTIFICIEL de 8 a 20 um sur la
+# somme elle-meme ne lui coute que 11.6 % en production et 6.9 % sur les
+# coupes annotees, quand le comptage y perd 94.2 % et 93.5 % : la somme est
+# environ 8 a 14 fois moins sensible au seuil, soit un ordre de grandeur.
+#
+# LA COLONNE PUBLIEE N'EMPLOIE AUCUN SEUIL DE GRAND LUMEN : elle somme tous
+# les objets resolus a partir de 2 um. Ces chiffres disent ce qui arriverait
+# si on lui en appliquait un, pas comment elle depend du seuil de 11 um.
 #
 # Toute modification de cette valeur invalide n_vessels dans les resultats de
 # production et impose de relancer l'inference, les masques de faisceaux des 433
