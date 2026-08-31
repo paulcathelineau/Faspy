@@ -467,17 +467,15 @@ def section_traits(leaflet: np.ndarray, instances: np.ndarray, lumen: np.ndarray
 
     # A L'ECHELLE DE LA FOLIOLE, la composition a TROIS parties et non deux :
     #
-    #     C = conduits >= seuil     (hydraulique)
-    #     B = reste du faisceau     (structure vasculaire : parois et petits
-    #                                lumens)
-    #     G = tissu fondamental     (hors faisceaux)
+    #     C = grands lumens >= seuil   (definis par la TAILLE, pas l'identite)
+    #     R = reste du faisceau        (petits lumens et materiel non luminal)
+    #     G = tissu fondamental        (hors faisceaux)
     #
-    # Une composition a trois parties se decrit avec DEUX coordonnees
-    # independantes, pas une :
+    # Trois parties EXCLUSIVES, donc deux coordonnees independantes :
     #
-    #     log(C/B)      allocation A L'INTERIEUR du systeme vasculaire, ecrit
-    #                   plus bas sous log_conduit_over_wall ;
-    #     log((C+B)/G)  part de la foliole investie dans le vasculaire, ici.
+    #     log(C/R)      allocation a l'interieur du faisceau, ecrite plus bas
+    #                   sous log_conduit_over_bundle_rest ;
+    #     log((C+R)/G)  part de la foliole investie dans le vasculaire, ici.
     #
     # Ensemble elles determinent entierement la composition, alors que
     # ratio_BU_LM et vessel_area_frac_BU, etant des parts d'un tout, sont
@@ -629,7 +627,7 @@ def section_traits(leaflet: np.ndarray, instances: np.ndarray, lumen: np.ndarray
     if fine is not None:
         lumen_areas = _lumen_objects(fine["lumen"], LUMEN_MIN_DIAMETER_UM, fine_pixel)
     else:
-        lumen_areas = _lumen_objects(lumen, LUMEN_MIN_DIAMETER_UM)
+        lumen_areas = _lumen_objects(lumen, LUMEN_MIN_DIAMETER_UM, pixel_um)
     if lumen_areas.size:
         diameters = 2 * np.sqrt(lumen_areas / np.pi) * fine_pixel
         vessels = diameters >= VESSEL_MIN_DIAMETER_UM
@@ -670,7 +668,27 @@ def section_traits(leaflet: np.ndarray, instances: np.ndarray, lumen: np.ndarray
             float(lumen_areas[vessels].sum()) / max(float(bundle_px), 1.0), 5
         )
 
-        # Compromis hydraulique / structure, en LOG-RAPPORT.
+        # Composition a TROIS parties exclusives, et deux coordonnees.
+        #
+        #     C  grands lumens, >= VESSEL_MIN_DIAMETER_UM
+        #     R  reste du faisceau : petits lumens ET materiel non luminal
+        #     G  tissu fondamental, hors faisceaux
+        #
+        # Une composition a D parties demande D-1 coordonnees. Une version
+        # precedente definissait QUATRE compartiments et n'en donnait que deux,
+        # et son denominateur -- la paroi seule -- ignorait les petits lumens.
+        # Trois parties exclusives reglent les deux defauts.
+        #
+        # Les fractions brutes ne peuvent pas entrer dans un modele : elles sont
+        # contraintes par leur somme, si bien que correler deux parts d'un meme
+        # tout mesure en partie cette contrainte. Le log-rapport y echappe.
+        #
+        # NaN quand C vaut zero. Pas de pseudocompte silencieux : un
+        # remplacement de zeros doit rester sous l'aire du plus petit conduit
+        # detectable, pi*(seuil/2)^2, et rester un choix explicite de l'analyste.
+        #
+        # C EST DEFINI PAR LA TAILLE. "Grands lumens", pas "vaisseaux" : le seuil
+        # ne separe pas vaisseaux et fibres, et le phloeme n'est pas detecte.
         #
         # Les fractions sont contraintes par leur somme -- ce qui est cavite
         # n'est pas paroi -- si bien que correler deux parts d'un meme tout
@@ -688,17 +706,18 @@ def section_traits(leaflet: np.ndarray, instances: np.ndarray, lumen: np.ndarray
         # remplacement de zeros en aval doit rester SOUS l'aire du plus petit
         # conduit detectable, pi*(seuil/2)^2 soit 95 um2 a 11 um, sans quoi il
         # affirmerait avoir vu ce qui n'a pas ete vu.
-        _cond, _wall = float(lumen_areas[vessels].sum()), float(wall_px)
-        out["log_conduit_over_wall"] = (
-            round(float(np.log(_cond / _wall)), 4)
-            if _cond > 0 and _wall > 0 else float("nan"))
+        _cond = float(lumen_areas[vessels].sum())
+        _rest = float(bundle_px) - _cond
+        out["log_conduit_over_bundle_rest"] = (
+            round(float(np.log(_cond / _rest)), 4)
+            if _cond > 0 and _rest > 0 else float("nan"))
     else:
         for field in LUMEN_FIELDS:
             out[field] = 0
         # Zero conduit n'est pas un log-rapport nul, c'est une absence : sans
         # conduit le rapport n'existe pas. Ecrire 0 le ferait passer pour un
         # faisceau ou conduits et paroi s'equilibrent.
-        out["log_conduit_over_wall"] = float("nan")
+        out["log_conduit_over_bundle_rest"] = float("nan")
 
     # Traits qui reposent sur le plan median : sans repere fiable, une valeur
     # est pire qu'une absence, car rien en aval ne la distingue.
@@ -732,7 +751,7 @@ LUMEN_FIELDS = [
     "n_lumen", "lumen_diameter_median_um", "lumen_diameter_p90_um",
     "lumen_diameter_max_um", "n_vessels", "vessel_area_over_bundle",
     "conduit_sum_d4_um4", "conduit_dh_um",
-    "log_conduit_over_wall",
+    "log_conduit_over_bundle_rest",
     "log_vascular_over_ground",
 ]
 

@@ -25,7 +25,6 @@ from .config import (
     EXCLUDED_SECTIONS,
     FLOW_THRESHOLD,
     PIXEL_AREA_UM2,
-    PIXEL_SIZE_UM,
     min_bundle_area_px,
     pixel_area_for,
     pixel_size_for,
@@ -49,7 +48,7 @@ FIELDS = [
 
 def lumen_at_full_resolution(rgb: np.ndarray, bundle: np.ndarray,
                              leaflet: np.ndarray,
-                             pixel_um: float = PIXEL_SIZE_UM) -> dict:
+                             pixel_um: float) -> dict:
     """Lumen measured on the original image rather than on the working scale.
 
     The rule itself is unchanged and stays photometric and relative: see

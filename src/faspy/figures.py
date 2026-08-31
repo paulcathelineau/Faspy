@@ -350,7 +350,7 @@ def _source_paths(key: str):
     return (raw if raw.exists() else None), leaflet, DIR_BUNDLE / f"{key}_BU.png"
 
 
-def _lumen_share(leaflet_full, bundle_mask, leaflet):
+def _lumen_share(leaflet_full, bundle_mask, leaflet, pixel_um):
     """Fraction luminale du faisceau, mesuree comme en production.
 
     Passait par ``LUMEN_SCALE / WORKING_SCALE``, un rapport qui vaut un : la
@@ -362,7 +362,8 @@ def _lumen_share(leaflet_full, bundle_mask, leaflet):
 
     if not bundle_mask.any():
         return 0.0
-    fine = lumen_at_full_resolution(leaflet_full, bundle_mask, leaflet)
+    fine = lumen_at_full_resolution(leaflet_full, bundle_mask, leaflet,
+                                    pixel_um=pixel_um)
     denominator = float(fine["bundle"].sum())
     return float(fine["lumen"].sum()) / denominator if denominator else 0.0
 
@@ -416,7 +417,8 @@ def pipeline_figure(key: str, output=None, model_name=None, rescale=CELLPOSE_RES
     to_full = 1.0 / (WORKING_SCALE ** 2)
     n_bundles = len([i for i in np.unique(segmented) if i > 0])
     leaflet_px, bundle_px = int(leaflet.sum()), int(bundle_mask.sum())
-    lumen_share = _lumen_share(leaflet_full, bundle_mask, leaflet)
+    lumen_share = _lumen_share(leaflet_full, bundle_mask, leaflet,
+                               pixel_size_for(key))
     diameters = [
         2 * np.sqrt(int((annotated == i).sum()) / np.pi) for i in np.unique(annotated) if i > 0
     ]
@@ -567,11 +569,18 @@ def pipeline_figure(key: str, output=None, model_name=None, rescale=CELLPOSE_RES
     # Meme mesure que la production : le lumen sur l'image d'origine, la
     # geometrie a l'echelle de travail. Une figure qui montrerait d'autres
     # chiffres que le CSV serait pire qu'inutile.
-    fine = lumen_at_full_resolution(leaflet_full, bundle_mask, leaflet)
+    # La taille de pixel de CETTE coupe, transmise a chaque etape. Sans elle,
+    # une coupe Keyence sortait toutes ses longueurs 29 % trop grandes -- ce que
+    # le commentaire ci-dessus promettait justement d'eviter.
+    _px_full = pixel_size_for(key)
+    _px_work = _px_full / WORKING_SCALE
+    fine = lumen_at_full_resolution(leaflet_full, bundle_mask, leaflet,
+                                    pixel_um=_px_full)
     full_lumen = to_working_scale(fine["lumen"], bundle_mask.shape)
-    measured = trait_route.section_traits(leaflet, segmented, full_lumen, fine=fine)
+    measured = trait_route.section_traits(leaflet, segmented, full_lumen,
+                                          fine=fine, pixel_um=_px_work)
     field, rotated_leaflet, (rotated_bundle,), mid_line = trait_route.mid_plane(
-        leaflet, bundle_mask)
+        leaflet, bundle_mask, pixel_um=_px_work)
 
     # A stretch of the lamina rather than the whole strip: at a third of the
     # sheet's width the full section collapses to an unreadable band, whereas a
@@ -581,7 +590,7 @@ def pipeline_figure(key: str, output=None, model_name=None, rescale=CELLPOSE_RES
     centre = (x0f + x1f) // 2
     x0f = max(x0f, centre - int(1.5 * thickness))
     x1f = min(x1f, centre + int(1.5 * thickness))
-    depth_view = np.where(rotated_leaflet, field * trait_route.PIXEL_UM,
+    depth_view = np.where(rotated_leaflet, field * pixel_um,
                           np.nan)[y0f:y1f, x0f:x1f]
 
     reliable_mid, _ = trait_route.midplane_reliable(rotated_leaflet)
@@ -639,7 +648,9 @@ def pipeline_figure(key: str, output=None, model_name=None, rescale=CELLPOSE_RES
     vessel_view = vessel_crop.copy()
     count_v, labels_v, stats_v, _ = cv2.connectedComponentsWithStats(
         lumen_v.astype(np.uint8), 8)
-    pixel_um_full = trait_route.PIXEL_UM
+    # Le vignettage travaille a l'echelle de travail, d'ou pixel_um et non
+    # pixel_full : c'est la resolution des objets qu'on y mesure.
+    pixel_um_full = pixel_um
     n_vessels_here = 0
     for index in range(1, count_v):
         area = stats_v[index, cv2.CC_STAT_AREA]
@@ -947,12 +958,20 @@ def traits_figure(key: str, output=None, model_name=None, rescale=CELLPOSE_RESCA
     from matplotlib.patches import Circle
 
     from . import traits as trait_route
-    from .config import LUMEN_MIN_DIAMETER_UM, VESSEL_MIN_DIAMETER_UM
+    from .config import (LUMEN_MIN_DIAMETER_UM, VESSEL_MIN_DIAMETER_UM,
+                         WORKING_SCALE, pixel_size_for)
     from .quantify import lumen_at_full_resolution, to_working_scale
 
-    pixel_um = trait_route.PIXEL_UM
+    # LA TAILLE DE PIXEL DE CETTE COUPE, jamais la constante native : le
+    # second systeme d'acquisition n'a pas la meme, et lire la constante faisait
+    # sortir toutes les longueurs d'une coupe Keyence dans un rapport 1.291 --
+    # 204 um d'epaisseur affiches contre 158 dans la table. Les fractions, elles,
+    # restaient justes, ce qui rendait l'erreur discrete.
+    pixel_full = pixel_size_for(key)
+    pixel_um = pixel_full / WORKING_SCALE
     scaled, leaflet, segmented, source, original = _load_section(key, model_name, rescale)
-    fine = lumen_at_full_resolution(original, segmented > 0, leaflet)
+    fine = lumen_at_full_resolution(original, segmented > 0, leaflet,
+                                    pixel_um=pixel_full)
     lumen = to_working_scale(fine["lumen"], leaflet.shape)
     measured = trait_route.section_traits(leaflet, segmented, lumen, fine=fine)
 
