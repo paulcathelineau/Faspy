@@ -170,12 +170,21 @@ PIXEL_AREA_UM2 = PIXEL_SIZE_UM ** 2
 # ---------------------------------------------------------------------------
 # Au-dela de ce diametre equivalent, un lumen est compte comme grand conduit.
 #
-# 11 um, et non 15 : a 15 um le comptage tombe a 0.29 conduit par faisceau sur
-# les coupes annotees, avec 86 % de faisceaux sans aucun conduit, la ou Silva &
-# Potiguara (2010) decrivent trois vaisseaux metaxylematiques par faisceau
-# secondaire chez Oenocarpus. Le sous-comptage etait donc d'un ordre de
-# grandeur. A 11 um on obtient 0.85 conduit par faisceau : toujours en dessous,
-# mais trois fois plus proche.
+# 11 um, et non 15 : a 15 um le comptage tombe a 0.89 conduit par faisceau sur
+# les 2486 faisceaux de production, avec 82 % de faisceaux sans aucun conduit,
+# la ou Silva & Potiguara (2010) decrivent trois vaisseaux metaxylematiques par
+# faisceau secondaire chez Oenocarpus. A 11 um on obtient 2.36 conduits par
+# faisceau, avec 74 % de faisceaux vides : toujours en dessous de trois, mais du
+# bon ordre de grandeur. Sur les 1151 faisceaux annotes, 0.65 et 1.66
+# respectivement -- les deux populations different d'un facteur proche de deux,
+# et il faut donc toujours dire de laquelle on parle.
+#
+# Mesure du 31 aout 2026, par balayage du seuil : les lumens sont detectes une
+# seule fois par coupe, puis chaque seuil est applique a la meme liste de
+# diametres. Les valeurs precedentes -- 0.29 et 0.85 -- dataient d'avant la
+# correction du masque de foliole et ne survivaient que dans ce commentaire,
+# sans rien pour les rejouer. C'est ainsi que le seuil etait reste deux ans a
+# 15 um, sur une affirmation que la mesure a fini par dementir.
 #
 # CE QUE 11 um NE FAIT PAS. Il ne separe pas les vaisseaux des fibres. Les
 # lumens de fibres de folioles d'Astrocaryum murumuru ont des MOYENNES par
@@ -188,11 +197,15 @@ PIXEL_AREA_UM2 = PIXEL_SIZE_UM ** 2
 # 2016). Le trait est donc ORDINAL -- un comptage de grands conduits -- et non
 # un recensement de vaisseaux.
 #
-# Le comptage reste tres sensible au seuil : sur les coupes annotees il passe de
-# 3.00 conduits par faisceau a 8 um a 0.12 a 20 um. C'est pourquoi
+# Le comptage reste tres sensible au seuil : sur la production il passe de 6.09
+# conduits par faisceau a 8 um a 0.35 a 20 um, un facteur 17, et sur les coupes
+# annotees de 4.35 a 0.28. C'est pourquoi
 # conduit_sum_d4_um4, qui pondere chaque lumen par la puissance quatre de son
 # diametre et n'emploie AUCUN seuil, lui est preferable partout ou une capacite
-# hydraulique est en jeu : il ne varie que de 4 % sur ce meme intervalle.
+# hydraulique est en jeu. Applique a la somme elle-meme, le meme balayage de
+# 8 a 20 um ne lui coute que 11.6 % sur la production et 6.9 % sur les coupes
+# annotees, quand le comptage en perd 94 % : deux ordres de grandeur d'ecart
+# dans la sensibilite au seuil.
 #
 # Toute modification de cette valeur invalide n_vessels dans les resultats de
 # production et impose de relancer l'inference, les masques de faisceaux des 433

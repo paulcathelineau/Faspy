@@ -643,10 +643,11 @@ def section_traits(leaflet: np.ndarray, instances: np.ndarray, lumen: np.ndarray
         # Hagen-Poiseuille donne K proportionnel a d^4 pour un conduit
         # cylindrique : un lumen de 30 um vaut seize fois un de 15 um. Sommer
         # les d^4 donne donc une grandeur dominee par les grands conduits, et
-        # c'est ce qui la rend robuste la ou n_vessels ne l'est pas. Mesure sur
-        # les 152 coupes annotees, entre 8 et 20 um de plancher : le nombre de
-        # conduits comptes chute d'un facteur 25, de 3.00 a 0.12 par faisceau,
-        # tandis que la somme des puissances quatre ne varie que de 4 %. Les
+        # c'est ce qui la rend robuste la ou n_vessels ne l'est pas. Entre 8 et
+        # 20 um de seuil, le comptage chute d'un facteur 17 sur les 2486
+        # faisceaux de production, de 6.09 a 0.35 par faisceau, tandis que la
+        # somme des puissances quatre, soumise au MEME seuil, ne perd que
+        # 11.6 % -- et 6.9 % sur les 1151 faisceaux annotes. Les
         # petits objets n'y pesent rien. Aucun seuil de vaisseau n'entre donc dans ce calcul :
         # tous les lumens y contribuent, ponderes par leur importance
         # hydraulique.
