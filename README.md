@@ -9,7 +9,7 @@ describing where the tissue sits rather than only how much of it there is.
 Sections are large — a median of 7512 × 9048 px, up to 13724 × 14416 — and are
 processed end to end without manual intervention.
 
-!(docs/Pipeline.jpg)
+![Each measured quantity drawn on the section, with its value](docs/measurements.jpg)
 
 <sub>Every panel is computed from the data by `faspy figure`, so the figure
 cannot drift from the code. Regenerate it for any section with
