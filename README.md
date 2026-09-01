@@ -165,7 +165,7 @@ Faspy is released under the MIT licence. The development repository is hosted on
 
 The image dataset should be cited separately through its own archive and DOI:
 
-**Image dataset:** [10.5281/zenodo.22233928]
+**Image dataset:** 10.5281/zenodo.22233928
 
 Software and data have separate licences: the code is released under MIT, while the image dataset is archived separately under CC BY 4.0.
 
